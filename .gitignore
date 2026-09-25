@@ -1,0 +1,15 @@
+node_modules/
+.env
+.claude/
+
+# 산출물은 기본 제외하고, 클라우드(GitHub Actions)와 PC 가 주고받아야 하는 것만 예외로 포함
+out/*
+!out/summary-*.txt
+!out/screener/
+out/screener/*/*
+!out/screener/*/profiles.json
+!out/screener/*/report.md
+!out/screener/*/candidates.md
+
+# DART 재무 캐시·사업보고서 원문은 용량이 커서 제외 (없으면 그때 다시 받음)
+data/

@@ -1,0 +1,87 @@
+name: 모닝 브리핑
+
+# cron 은 UTC. KST = UTC+9
+#   21:15 UTC = 06:15 KST (다음날)  전체
+#   00:15 UTC = 09:15 KST           지표만
+#   03:15 UTC = 12:15 KST           지표만
+#   06:15 UTC = 15:15 KST           지표만
+# GitHub cron 은 10~30분 밀릴 수 있어 목표 시각보다 15분 앞당겨 잡음
+on:
+  schedule:
+    - cron: '15 21 * * *'
+    - cron: '15 0,3,6 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: '실행 모드'
+        type: choice
+        options: [quick, full]
+        default: quick
+
+concurrency:
+  group: brief
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: Asia/Seoul
+      DART_API_KEY: ${{ secrets.DART_API_KEY }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      APP_URL: ${{ secrets.APP_URL }}
+      EXIM_API_KEY: ${{ secrets.EXIM_API_KEY }}
+      ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
+      NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 실행 모드 결정
+        id: mode
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "mode=${{ inputs.mode }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "15 21 * * *" ]; then
+            echo "mode=full" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=quick" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      # DART 재무는 주 1회만 바뀌므로 캐시. 없으면 스크리너가 알아서 다시 받음
+      - name: DART 캐시 복원
+        if: steps.mode.outputs.mode == 'full'
+        uses: actions/cache@v4
+        with:
+          path: data
+          key: dart-${{ github.run_id }}
+          restore-keys: dart-
+
+      - name: 거시지표 수집
+        run: node src/macro/index.mjs
+
+      - name: 종목 스크리너
+        if: steps.mode.outputs.mode == 'full'
+        run: node src/screener/index.mjs
+        continue-on-error: true
+
+      - name: 텔레그램 발송
+        run: node src/telegram.mjs ${{ steps.mode.outputs.mode }}
+
+      - name: 실패 시 알림
+        if: failure()
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            -d text="⚠️ 모닝 브리핑 실패 (${{ steps.mode.outputs.mode }}) — GitHub Actions 로그를 확인하세요: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
