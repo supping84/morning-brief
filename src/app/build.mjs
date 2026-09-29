@@ -678,15 +678,26 @@ export async function buildApp(dateArg) {
   const sDate = (await exists(path.join(OUT, 'screener', date, 'candidates.json'))) ? date : (sNames.at(-1) ?? date);
   const sDir = path.join(OUT, 'screener', sDate);
   const screener = JSON.parse(await read(path.join(sDir, 'candidates.json')) ?? 'null');
-  const report = await read(path.join(sDir, 'report.md'));
-  let profiles = null;
-  try { profiles = JSON.parse(await read(path.join(sDir, 'profiles.json')) ?? 'null'); } catch (e) { console.error(`profiles.json 파싱 실패: ${e.message}`); }
+  // 정성평가(report·profiles)는 앱 예약 작업이 쓰므로 오늘 것이 없을 수 있다.
+  // 없으면 가장 최근 날짜에서 가져와 쓴다 — 종목코드로 매칭되므로 후보가 겹치는 한 유효하다.
+  const older = [sDate, ...sNames.slice().reverse()].filter(Boolean);
+  let report = null, profiles = null, evalDate = null;
+  for (const d of older) {
+    if (report == null) report = await read(path.join(OUT, 'screener', d, 'report.md'));
+    if (profiles == null) {
+      try {
+        const j = JSON.parse(await read(path.join(OUT, 'screener', d, 'profiles.json')) ?? 'null');
+        if (j && Object.keys(j).length) { profiles = j; evalDate = d; }
+      } catch (e) { console.error(`profiles.json(${d}) 파싱 실패: ${e.message}`); }
+    }
+    if (report != null && profiles != null) break;
+  }
 
   const html = page({ date, macro, summary, summaryDate, screener, report, profiles, builtAt: new Date().toISOString() });
   const outPath = path.join(OUT, 'app', 'index.html');
   await mkdir(path.dirname(outPath), { recursive: true });
   await writeFile(outPath, html, 'utf8');
-  console.log(`페이지 생성: ${outPath} (${(html.length / 1024).toFixed(0)}KB) — 거시 ${macro ? date : '없음'} / 요약 ${summary ? '있음' : '없음'} / 후보 ${screener?.candidates.length ?? 0} / 리포트 ${report ? '있음' : '없음'} / 프로필 ${profiles ? Object.keys(profiles).length : 0}`);
+  console.log(`페이지 생성: ${outPath} (${(html.length / 1024).toFixed(0)}KB) — 거시 ${macro ? date : '없음'} / 요약 ${summary ? '있음' : '없음'} / 후보 ${screener?.candidates.length ?? 0}(${sDate}) / 리포트 ${report ? '있음' : '없음'} / 프로필 ${profiles ? Object.keys(profiles).length : 0}${evalDate && evalDate !== sDate ? `(${evalDate})` : ''}`);
   return outPath;
 }
 
