@@ -22,10 +22,18 @@ concurrency:
   group: brief
   cancel-in-progress: false
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
 jobs:
   run:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
     env:
       TZ: Asia/Seoul
       DART_API_KEY: ${{ secrets.DART_API_KEY }}
@@ -75,6 +83,18 @@ jobs:
         if: steps.mode.outputs.mode == 'full'
         run: node src/screener/index.mjs
         continue-on-error: true
+
+      # 핸드폰 페이지를 GitHub Pages 로 게시 — PC·앱 없이 항상 최신
+      - name: 페이지 빌드
+        run: node src/app/build.mjs
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: out/app
+      - name: 페이지 배포
+        id: deploy
+        uses: actions/deploy-pages@v4
 
       - name: 텔레그램 발송
         run: node src/telegram.mjs ${{ steps.mode.outputs.mode }}
