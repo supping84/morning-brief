@@ -84,6 +84,11 @@ jobs:
         run: node src/screener/index.mjs
         continue-on-error: true
 
+      # 텔레그램을 먼저 — Pages 배포는 동시 실행 시 취소될 수 있는데,
+      # 그때도 브리핑은 이미 나간 상태가 되도록 순서를 이렇게 둔다
+      - name: 텔레그램 발송
+        run: node src/telegram.mjs ${{ steps.mode.outputs.mode }}
+
       # 핸드폰 페이지를 GitHub Pages 로 게시 — PC·앱 없이 항상 최신
       - name: 페이지 빌드
         run: node src/app/build.mjs
@@ -95,9 +100,6 @@ jobs:
       - name: 페이지 배포
         id: deploy
         uses: actions/deploy-pages@v4
-
-      - name: 텔레그램 발송
-        run: node src/telegram.mjs ${{ steps.mode.outputs.mode }}
 
       - name: 실패 시 알림
         if: failure()
