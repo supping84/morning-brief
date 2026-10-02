@@ -1,13 +1,8 @@
 name: 모닝 브리핑
 
-# cron 은 UTC. KST = UTC+9
-#   21:15 UTC = 06:15 KST (다음날)  전체
-#   00:15 UTC = 09:15 KST           지표만
-#   03:15 UTC = 12:15 KST           지표만
-#   06:15 UTC = 15:15 KST           지표만
-# GitHub cron 은 10~30분 밀릴 수 있어 목표 시각보다 15분 앞당겨 잡음
-# GitHub 무료 러너는 정시·15분 등 혼잡한 분에 몰려 수 시간씩 밀린다.
-# 한산한 분(:47)으로 옮기고, 목표보다 더 앞당겨 잡는다.
+# 정시 트리거는 외부 스케줄러(cron-job.org)가 workflow_dispatch 로 깨운다.
+# GitHub 자체 schedule 은 몇 시간씩 밀리므로 "외부가 실패했을 때의 백업"으로만 남긴다.
+# 같은 날·같은 모드로 이미 발송했으면 캐시 마커를 보고 건너뛰므로 중복은 오지 않는다.
 on:
   schedule:
     - cron: '47 20 * * *'
@@ -15,10 +10,10 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: '실행 모드'
+        description: '실행 모드 (auto = 지금 KST 시각으로 판단)'
         type: choice
-        options: [quick, full]
-        default: quick
+        options: [auto, quick, full]
+        default: auto
 
 concurrency:
   group: brief
@@ -54,7 +49,12 @@ jobs:
       - name: 실행 모드 결정
         id: mode
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "date=$(date +%F)" >> "$GITHUB_OUTPUT"
+          if [ "${{ inputs.mode }}" = "auto" ]; then
+            # 외부 스케줄러는 mode 를 안 넘긴다 → KST 05~08시면 전체, 그 외엔 지표만
+            h=$(date +%H)
+            if [ "$h" -ge 5 ] && [ "$h" -le 8 ]; then echo "mode=full" >> "$GITHUB_OUTPUT"; else echo "mode=quick" >> "$GITHUB_OUTPUT"; fi
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "mode=${{ inputs.mode }}" >> "$GITHUB_OUTPUT"
           elif [ "${{ github.event.schedule }}" = "47 20 * * *" ]; then
             echo "mode=full" >> "$GITHUB_OUTPUT"
@@ -98,8 +98,24 @@ jobs:
 
       # 텔레그램을 먼저 — Pages 배포는 동시 실행 시 취소될 수 있는데,
       # 그때도 브리핑은 이미 나간 상태가 되도록 순서를 이렇게 둔다
+      # 같은 날·같은 모드로 이미 보냈는지 표시하는 마커. 외부 스케줄러와 GitHub schedule 이
+      # 둘 다 돌아도 메시지는 한 번만 간다.
+      - name: 발송 기록 확인
+        id: sent
+        uses: actions/cache@v4
+        with:
+          path: .sent
+          key: sent-${{ steps.mode.outputs.date }}-${{ steps.mode.outputs.mode }}
+
       - name: 텔레그램 발송
-        run: node src/telegram.mjs ${{ steps.mode.outputs.mode }}
+        if: steps.sent.outputs.cache-hit != 'true'
+        run: |
+          node src/telegram.mjs ${{ steps.mode.outputs.mode }}
+          mkdir -p .sent && date > .sent/ok
+
+      - name: 발송 건너뜀 안내
+        if: steps.sent.outputs.cache-hit == 'true'
+        run: echo "이미 ${{ steps.mode.outputs.date }} ${{ steps.mode.outputs.mode }} 로 발송함 — 중복 방지로 건너뜀"
 
       # 핸드폰 페이지를 GitHub Pages 로 게시 — PC·앱 없이 항상 최신
       - name: 페이지 빌드
