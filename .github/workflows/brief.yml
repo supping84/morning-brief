@@ -68,23 +68,13 @@ jobs:
         with:
           node-version: '22'
 
-      # npm ci 가 출력 없이 멎는 일이 잦았다. 멈춘 명령은 스스로 끝나지 않으므로
-      # timeout 으로 강제 종료해야 재시도가 실제로 돌아간다.
+      # --ignore-scripts: 설치 중 프로젝트 스크립트를 돌리지 않는다.
+      # (prepare 같은 npm 예약 이름을 쓰면 설치 때 딸려 실행돼 몇 분씩 잡아먹는다)
       - name: 의존성 설치
-        timeout-minutes: 10
+        timeout-minutes: 5
         run: |
-          attempt() {
-            echo "── 설치 시도 $1 ──"
-            timeout --foreground 150 npm ci --no-audit --no-fund --no-progress \
-              --fetch-timeout=45000 --fetch-retries=2
-          }
-          attempt 1 && exit 0
-          echo "멈춤/실패 → npm 캐시 삭제 후 재시도"
-          npm cache clean --force 2>/dev/null || true
-          rm -rf node_modules "$(npm config get cache)" 2>/dev/null || true
-          attempt 2 && exit 0
-          echo "재시도도 실패 → npm install 로 마지막 시도"
-          timeout --foreground 240 npm install --no-audit --no-fund --no-progress
+          npm ci --no-audit --no-fund --no-progress --ignore-scripts \
+            --fetch-timeout=45000 --fetch-retries=3
 
       # DART 재무는 주 1회만 바뀌므로 캐시. 없으면 스크리너가 알아서 다시 받음
       - name: DART 캐시 복원

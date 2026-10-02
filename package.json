@@ -7,7 +7,7 @@
     "screener": "node src/screener/index.mjs",
     "app": "node src/app/build.mjs",
     "telegram": "node src/telegram.mjs full",
-    "prepare": "node src/prepare.mjs"
+    "ready": "node src/prepare.mjs"
   },
   "keywords": [],
   "author": "",
