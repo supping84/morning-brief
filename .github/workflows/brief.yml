@@ -62,22 +62,29 @@ jobs:
             echo "mode=quick" >> "$GITHUB_OUTPUT"
           fi
 
+      # cache: npm 은 쓰지 않는다 — 복원된 npm 캐시가 ci 를 멈추게 하는 일이 반복됐고,
+      # 의존성이 5개뿐이라 매번 새로 받아도 10~20초면 끝난다.
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: npm
 
-      # npm ci 가 가끔 출력 없이 멎어 20분 타임아웃까지 가는 일이 있었다.
-      # 5분 안에 안 끝나면 캐시를 버리고 한 번 더 시도한다.
+      # npm ci 가 출력 없이 멎는 일이 잦았다. 멈춘 명령은 스스로 끝나지 않으므로
+      # timeout 으로 강제 종료해야 재시도가 실제로 돌아간다.
       - name: 의존성 설치
-        timeout-minutes: 6
+        timeout-minutes: 10
         run: |
-          set -x
-          npm ci --no-audit --no-fund --prefer-offline --fetch-timeout=60000 --fetch-retries=3 && exit 0
-          echo "첫 시도 실패 — 캐시 비우고 재시도"
-          npm cache clean --force || true
-          rm -rf node_modules
-          npm ci --no-audit --no-fund --fetch-timeout=60000 --fetch-retries=3
+          attempt() {
+            echo "── 설치 시도 $1 ──"
+            timeout --foreground 150 npm ci --no-audit --no-fund --no-progress \
+              --fetch-timeout=45000 --fetch-retries=2
+          }
+          attempt 1 && exit 0
+          echo "멈춤/실패 → npm 캐시 삭제 후 재시도"
+          npm cache clean --force 2>/dev/null || true
+          rm -rf node_modules "$(npm config get cache)" 2>/dev/null || true
+          attempt 2 && exit 0
+          echo "재시도도 실패 → npm install 로 마지막 시도"
+          timeout --foreground 240 npm install --no-audit --no-fund --no-progress
 
       # DART 재무는 주 1회만 바뀌므로 캐시. 없으면 스크리너가 알아서 다시 받음
       - name: DART 캐시 복원
