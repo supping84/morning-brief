@@ -6,10 +6,12 @@ name: 모닝 브리핑
 #   03:15 UTC = 12:15 KST           지표만
 #   06:15 UTC = 15:15 KST           지표만
 # GitHub cron 은 10~30분 밀릴 수 있어 목표 시각보다 15분 앞당겨 잡음
+# GitHub 무료 러너는 정시·15분 등 혼잡한 분에 몰려 수 시간씩 밀린다.
+# 한산한 분(:47)으로 옮기고, 목표보다 더 앞당겨 잡는다.
 on:
   schedule:
-    - cron: '15 21 * * *'
-    - cron: '15 0,3,6 * * *'
+    - cron: '47 20 * * *'
+    - cron: '47 23,2,5 * * *'
   workflow_dispatch:
     inputs:
       mode:
@@ -54,7 +56,7 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "mode=${{ inputs.mode }}" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event.schedule }}" = "15 21 * * *" ]; then
+          elif [ "${{ github.event.schedule }}" = "47 20 * * *" ]; then
             echo "mode=full" >> "$GITHUB_OUTPUT"
           else
             echo "mode=quick" >> "$GITHUB_OUTPUT"
@@ -65,7 +67,17 @@ jobs:
           node-version: '22'
           cache: npm
 
-      - run: npm ci --no-audit --no-fund
+      # npm ci 가 가끔 출력 없이 멎어 20분 타임아웃까지 가는 일이 있었다.
+      # 5분 안에 안 끝나면 캐시를 버리고 한 번 더 시도한다.
+      - name: 의존성 설치
+        timeout-minutes: 6
+        run: |
+          set -x
+          npm ci --no-audit --no-fund --prefer-offline --fetch-timeout=60000 --fetch-retries=3 && exit 0
+          echo "첫 시도 실패 — 캐시 비우고 재시도"
+          npm cache clean --force || true
+          rm -rf node_modules
+          npm ci --no-audit --no-fund --fetch-timeout=60000 --fetch-retries=3
 
       # DART 재무는 주 1회만 바뀌므로 캐시. 없으면 스크리너가 알아서 다시 받음
       - name: DART 캐시 복원
